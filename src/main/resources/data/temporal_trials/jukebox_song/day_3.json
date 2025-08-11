@@ -1,0 +1,8 @@
+{
+    "comparator_output": 13,
+    "description": {
+        "translate": "item.temporal_trials.day_3_disc.desc"
+    },
+    "length_in_seconds": 204.0,
+    "sound_event": "temporal_trials:day_3"
+}
