@@ -1,6 +1,0 @@
-{
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "temporal_trials:item/day_2_disc"
-  }
-}
