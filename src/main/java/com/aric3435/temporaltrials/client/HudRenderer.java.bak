@@ -1,0 +1,51 @@
+package com.aric3435.temporaltrials.client;
+
+import com.aric3435.temporaltrials.TemporalTrialsMod;
+// disabled until 0.2.0-beta
+import com.aric3435.temporaltrials.world.LoopManager;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.util.Identifier;
+
+public class HudRenderer {
+
+    private static final Identifier HUD_TEXTURE =
+            Identifier.of(TemporalTrialsMod.MOD_ID, "textures/gui/day_counter.png");
+
+    public static void register() {
+        HudRenderCallback.EVENT.register(HudRenderer::render);
+    }
+
+    private static void render(DrawContext ctx, float tickDelta) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.world == null || client.player == null) return;
+
+        if (!LoopManager.isTemporalTrials(client.world)) return;
+
+        if (!LoopStateClientState.active) return;
+
+        int screenWidth = client.getWindow().getScaledWidth();
+        int screenHeight = client.getWindow().getScaledHeight();
+
+        int x = (screenWidth / 2) - 128;
+        int y = screenHeight - 80;
+
+        ctx.drawTexture(HUD_TEXTURE, x, y, 0, 0, 256, 64, 256, 64);
+
+        long total = 24000;
+        long elapsed = total - LoopStateClientState.remainingTicks % total;
+        float progress = (float) elapsed / total;
+
+        int barWidth = (int) (progress * 200);
+        ctx.fill(x + 40, y + 40, x + 40 + barWidth, y + 50, 0xAAFFFFFF);
+
+        String dayText = switch (LoopStateClientState.day) {
+            case 1 -> "First Day";
+            case 2 -> "Second Day";
+            default -> "Final Day";
+        };
+
+        ctx.drawText(client.textRenderer, dayText, x + 10, y + 10, 0xFFFFFF, false);
+    }
+}

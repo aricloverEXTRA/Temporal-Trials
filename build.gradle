@@ -1,7 +1,6 @@
 plugins {
     id 'fabric-loom' version "${loom_version}"
     id 'maven-publish'
-    id "org.jetbrains.kotlin.jvm" version "2.2.0"
 }
 
 version = project.mod_version
@@ -12,11 +11,7 @@ base {
 }
 
 repositories {
-    // Loom already adds essential Minecraft repos,
-    // but you can add custom ones if needed in the future:
     mavenCentral()
-    // Example: For additional mod dependencies:
-    // maven { url "https://maven.modrinth.com" }
 }
 
 dependencies {
@@ -24,10 +19,6 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-    modImplementation "net.fabricmc:fabric-language-kotlin:${project.fabric_kotlin_version}"
-
-    // Explicit Kotlin stdlib — good practice even if bundled
-    implementation "org.jetbrains.kotlin:kotlin-stdlib"
 }
 
 loom {
@@ -36,9 +27,6 @@ loom {
             sourceSet sourceSets.main
         }
     }
-
-    // Optional: Include access widener if using one
-    // accessWidenerPath = file("src/main/resources/temporal_trials.accesswidener")
 }
 
 fabricApi {
@@ -59,12 +47,6 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 21
 }
 
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-    kotlinOptions {
-        jvmTarget = "21"
-    }
-}
-
 java {
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_21
@@ -76,17 +58,5 @@ jar {
 
     from("LICENSE") {
         rename { "${it}_${inputs.properties.archivesName}" }
-    }
-}
-
-publishing {
-    publications {
-        create("mavenJava", MavenPublication) {
-            artifactId = project.archives_base_name
-            from components.java
-        }
-    }
-    repositories {
-        // Add publishing targets here if you're pushing to Maven repo
     }
 }
