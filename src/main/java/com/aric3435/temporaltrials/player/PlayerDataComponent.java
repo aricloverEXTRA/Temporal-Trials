@@ -4,6 +4,17 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.util.collection.DefaultedList;
 
+/**
+ * PlayerDataComponent: Stores persistent player data across cycles.
+ * 
+ * Currently stores:
+ * - savedInventory: Items player had when they last used Flute of Time
+ * - lastFluteUseTick: When they last used the flute (for debugging)
+ * 
+ * In future versions:
+ * - NBT serialization for permanent storage
+ * - Difficulty-specific behavior
+ */
 public class PlayerDataComponent {
 
     private DefaultedList<ItemStack> savedInventory =
@@ -19,6 +30,9 @@ public class PlayerDataComponent {
         for (int i = 0; i < inv.size(); i++) {
             savedInventory.set(i, inv.get(i).copy());
         }
+        System.out.println("[TemporalTrials] Saved inventory with " + 
+                         savedInventory.stream().filter(stack -> !stack.isEmpty()).count() + 
+                         " item stacks");
     }
 
     public long getLastFluteUseTick() {
@@ -30,7 +44,12 @@ public class PlayerDataComponent {
     }
 
     // Disabled for 0.1.0-beta (NBT API changed in 1.21.4)
-    public void writeToNbt(NbtCompound nbt) { }
+    // Re-enable in future versions for persistent storage
+    public void writeToNbt(NbtCompound nbt) { 
+        // TODO: Serialize savedInventory to NBT
+    }
 
-    public void readFromNbt(NbtCompound nbt) { }
+    public void readFromNbt(NbtCompound nbt) { 
+        // TODO: Deserialize savedInventory from NBT
+    }
 }

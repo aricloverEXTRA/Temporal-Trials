@@ -8,4 +8,11 @@ public class LoopStateClientState {
     public static boolean showIntro = false;
 
     private LoopStateClientState() {}
+
+    public static void update(boolean newActive, int newDay, long newRemaining, boolean newShowIntro) {
+        active = newActive;
+        day = newDay;
+        remainingTicks = newRemaining;
+        showIntro = newShowIntro;
+    }
 }

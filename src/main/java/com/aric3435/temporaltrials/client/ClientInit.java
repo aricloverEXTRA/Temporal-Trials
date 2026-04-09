@@ -1,46 +1,55 @@
 package com.aric3435.temporaltrials.client;
 
-import com.aric3435.temporaltrials.TemporalTrialsMod;
 import com.aric3435.temporaltrials.network.LoopStatePayload;
+import com.aric3435.temporaltrials.config.TemporalTrialsClientConfig;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.api.Environment;
+import net.fabricmc.api.EnvType;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
-import net.minecraft.item.ItemGroups;
 
+/**
+ * ClientInit: Client-side initialization for Temporal Trials
+ * 
+ * CLIENT-SIDE ONLY
+ * Registers:
+ * - Network payload receivers
+ * - Music controller
+ * - Client-side config loading
+ */
+@Environment(EnvType.CLIENT)
 public final class ClientInit implements ClientModInitializer {
+
+    private static boolean initialized = false;
 
     @Override
     public void onInitializeClient() {
-        System.out.println("[TemporalTrials] client init - adding items to vanilla tab");
+        // Prevent double initialization
+        if (initialized) {
+            return;
+        }
+        initialized = true;
 
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(entries -> {
-            entries.add(TemporalTrialsMod.FLUTE_OF_TIME);
-            entries.add(TemporalTrialsMod.DAY_1_DISC);
-            entries.add(TemporalTrialsMod.DAY_2_DISC);
-            entries.add(TemporalTrialsMod.DAY_3_DISC);
-        });
+        System.out.println("[TemporalTrials] Client initializing...");
 
-        // Typed payload receiver (correct signature for your mappings)
+        // Load client-side configuration
+        TemporalTrialsClientConfig.loadConfig();
+        System.out.println("[TemporalTrials] ✓ Client config loaded");
+
+        // Register network payload receiver
         ClientPlayNetworking.registerGlobalReceiver(
                 LoopStatePayload.ID,
-                (client, payload, context) -> {
-                    client.execute(() -> {
-                        LoopStateClientState.active = payload.isActive();
-                        LoopStateClientState.day = payload.getDay();
-                        LoopStateClientState.remainingTicks = payload.getRemainingTicks();
-                        LoopStateClientState.showIntro = payload.shouldShowIntro();
-
-                        System.out.println(
-                                "[TemporalTrials] client received loop_state: " +
-                                "active=" + payload.isActive() +
-                                " day=" + payload.getDay() +
-                                " remaining=" + payload.getRemainingTicks() +
-                                " intro=" + payload.shouldShowIntro()
-                        );
-                    });
+                (payload, context) -> {
+                    // Update client state directly
+                    LoopStateClientState.active = payload.isActive();
+                    LoopStateClientState.day = payload.getDay();
+                    LoopStateClientState.remainingTicks = payload.getRemainingTicks();
+                    LoopStateClientState.showIntro = payload.shouldShowIntro();
                 }
         );
 
-        System.out.println("[TemporalTrials] client receiver registered for LoopStatePayload");
+        // Register music controller
+        MusicController.register();
+
+        System.out.println("[TemporalTrials] ✓ Client initialized successfully");
     }
 }

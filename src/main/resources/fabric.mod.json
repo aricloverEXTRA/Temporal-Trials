@@ -25,9 +25,9 @@
 			"value": "com.aric3435.temporaltrials.client.ClientInit"
 			}
 		],
-	"fabric-datagen": [
-		{
-			"value": "com.aric3435.temporaltrials.datagen.FabricDatagenEntrypoint"
+		"modmenu": [
+			{
+				"value": "com.aric3435.temporaltrials.client.TemporalTrialsModMenu"
 			}
 		]
 	},

@@ -6,11 +6,12 @@
     " B "
   ],
   "key": {
-    "#": { "item": "minecraft:clock" },
-    "B": { "item": "minecraft:lapis_lazuli" },
-    "G": { "item": "minecraft:gold_ingot" }
+    "#": "minecraft:clock",
+    "B": "minecraft:lapis_lazuli",
+    "G": "minecraft:gold_ingot"
   },
   "result": {
-    "item": "temporal_trials:flute_of_time"
+    "id": "temporal_trials:flute_of_time",
+    "count": 1
   }
 }

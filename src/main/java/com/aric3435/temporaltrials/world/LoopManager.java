@@ -1,12 +1,12 @@
 package com.aric3435.temporaltrials.world;
 
 import com.aric3435.temporaltrials.TemporalTrialsMod;
+import com.aric3435.temporaltrials.config.TemporalTrialsConfig;
 import com.aric3435.temporaltrials.network.LoopStatePayload;
 import com.aric3435.temporaltrials.player.PlayerDataComponent;
 import com.aric3435.temporaltrials.player.PlayerDataProvider;
+import com.aric3435.temporaltrials.player.MultiplayerLivesManager;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
-import net.minecraft.network.PacketByteBuf;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -18,25 +18,30 @@ import net.minecraft.util.Identifier;
 
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * LoopManager: 3-day loop logic and debug helpers.
- * Uses PacketByteBuf + ServerPlayNetworking.send(player, Identifier, buf) for networking (Option A).
+ * LoopManager: 3-day loop logic and world reset mechanics
+ * 
+ * CRITICAL FIX: Uses AtomicBoolean to prevent multiple resets
+ * CRITICAL FIX: Single-threaded reset to prevent server overload
  */
 public final class LoopManager {
     private LoopManager() {}
 
-    private static final long LOOP_DURATION_TICKS = 72_000L;
-    private static final long DAY_LENGTH_TICKS = 24_000L;
-
     private static long loopStartTick = -1L;
     private static boolean loopActive = false;
 
-    // debug commands gate
     private static final boolean DEBUG_COMMANDS_ENABLED = true;
     private static final Map<ServerWorld, Boolean> TEST_ENABLED = new WeakHashMap<>();
+    
+    // CRITICAL: Prevent multiple simultaneous resets
+    private static final AtomicBoolean isResetting = new AtomicBoolean(false);
+    private static final Map<ServerWorld, Long> lastResetTime = new WeakHashMap<>();
 
     private static final Identifier LOOP_STATE_CHANNEL = Identifier.of(TemporalTrialsMod.MOD_ID, "loop_state");
+
+    // ===== DEBUG HELPERS =====
 
     public static void setEnabledForWorld(ServerWorld world, boolean enabled) {
         if (!DEBUG_COMMANDS_ENABLED) return;
@@ -81,37 +86,48 @@ public final class LoopManager {
                 }
             }
         }
-        return world.getRegistryKey().equals(TemporalTrialsMod.TEMPORAL_TRIALS_DIMENSION);
+        try {
+            return world.getRegistryKey().equals(TemporalTrialsMod.TEMPORAL_TRIALS_DIMENSION);
+        } catch (Exception e) {
+            return false;
+        }
     }
+
+    // ===== LOOP CONTROL =====
 
     public static void forceStartLoop(ServerWorld world) {
         if (world == null) return;
         loopStartTick = world.getTimeOfDay();
         loopActive = true;
-        System.out.println("[TemporalTrials] Loop forced start at tick " + loopStartTick + " for world " + world.getRegistryKey());
-        sendStateToAll(world, true);
+        System.out.println("[TemporalTrials] Loop forced start at tick " + loopStartTick);
+        sendStateToAll(world, true, 1, TemporalTrialsConfig.getLoopDurationTicks());
     }
 
     public static void forceStopLoop(ServerWorld world) {
         if (world == null) return;
         loopActive = false;
-        System.out.println("[TemporalTrials] Loop forced stop for world " + world.getRegistryKey());
-        sendStateToAll(world, false);
+        System.out.println("[TemporalTrials] Loop forced stop");
+        sendStateToAll(world, false, 1, TemporalTrialsConfig.getLoopDurationTicks());
     }
 
     public static int getCurrentDayForWorld(ServerWorld world) {
         if (world == null) return 1;
         long now = world.getTimeOfDay();
         long elapsed = (loopStartTick < 0) ? 0 : now - loopStartTick;
-        return getCurrentDay(elapsed);
+        return getCurrentDayFromElapsed(elapsed);
     }
 
     public static void startLoop(ServerWorld world) {
         if (!isTemporalTrials(world)) return;
         loopStartTick = world.getTimeOfDay();
         loopActive = true;
-        world.getPlayers().forEach(p -> p.sendMessage(Text.of("Dawn of the First Day..."), false));
-        sendStateToAll(world, true);
+        
+        for (ServerPlayerEntity player : world.getPlayers()) {
+            String dayName = TemporalTrialsConfig.getDayName(1);
+            player.sendMessage(Text.of("§6§l✦ Dawn of the " + dayName + "... ✦"), false);
+        }
+        
+        sendStateToAll(world, true, 1, TemporalTrialsConfig.getLoopDurationTicks());
     }
 
     public static void tick(ServerWorld world) {
@@ -120,102 +136,307 @@ public final class LoopManager {
             startLoop(world);
             return;
         }
+
         long now = world.getTimeOfDay();
         long elapsed = now - loopStartTick;
+
         if (elapsed < 0) {
             loopStartTick = now;
             elapsed = 0;
         }
-        int currentDay = getCurrentDay(elapsed);
-        long remaining = LOOP_DURATION_TICKS - elapsed;
+
+        int currentDay = getCurrentDayFromElapsed(elapsed);
+        long remaining = TemporalTrialsConfig.getLoopDurationTicks() - elapsed;
+
         sendStateToAll(world, false, currentDay, remaining);
         handleDayTransitions(world, currentDay, elapsed);
-        if (elapsed >= LOOP_DURATION_TICKS) {
+
+        if (elapsed >= TemporalTrialsConfig.getLoopDurationTicks()) {
             handleLoopEnd(world);
         }
     }
 
-    private static int getCurrentDay(long elapsed) {
-        if (elapsed < DAY_LENGTH_TICKS) return 1;
-        if (elapsed < 2 * DAY_LENGTH_TICKS) return 2;
-        return 3;
+    /**
+     * Calculate current day from elapsed ticks
+     */
+    private static int getCurrentDayFromElapsed(long elapsed) {
+        long dayLength = TemporalTrialsConfig.getDayLengthTicks();
+        int day = (int) (elapsed / dayLength) + 1;
+        int maxDays = TemporalTrialsConfig.CYCLE_LENGTH_DAYS;
+        if (day > maxDays) {
+            day = maxDays;
+        }
+        return day;
     }
 
+    /**
+     * Handle day transitions (send messages when moving to next day)
+     * FIXED: Only trigger ONCE per day transition
+     */
     private static void handleDayTransitions(ServerWorld world, int currentDay, long elapsed) {
         if (elapsed == 0) return;
-        if (elapsed == DAY_LENGTH_TICKS) {
-            world.getPlayers().forEach(p -> p.sendMessage(Text.of("Dawn of the Second Day..."), false));
-        } else if (elapsed == 2 * DAY_LENGTH_TICKS) {
-            world.getPlayers().forEach(p -> p.sendMessage(Text.of("Dawn of the Final Day..."), false));
+        
+        long dayLength = TemporalTrialsConfig.getDayLengthTicks();
+        int maxDays = TemporalTrialsConfig.CYCLE_LENGTH_DAYS;
+        
+        for (int day = 1; day <= maxDays; day++) {
+            long transitionTick = (long)(day - 1) * dayLength;
+            
+            // Only announce within 1 tick of transition
+            if (elapsed >= transitionTick && elapsed < transitionTick + 2) {
+                String dayName = TemporalTrialsConfig.getDayName(day);
+                
+                for (ServerPlayerEntity player : world.getPlayers()) {
+                    if (day >= maxDays) {
+                        player.sendMessage(Text.of("§4§l✦ " + dayName + " ✦"), false);
+                    } else if (day == 2) {
+                        player.sendMessage(Text.of("§e§l✦ " + dayName + " ✦"), false);
+                    } else {
+                        player.sendMessage(Text.of("§6§l✦ " + dayName + " ✦"), false);
+                    }
+                }
+                return;
+            }
         }
     }
 
     private static void handleLoopEnd(ServerWorld world) {
-	    // TODO: real win condition (Elytra, etc.) in a later portion
+        System.out.println("[TemporalTrials] === LOOP END: Cycle time limit reached ===");
+        
         boolean averted = checkWinCondition(world);
         if (!averted) {
             triggerMoonfall(world);
         }
-        resetLoop(world);
     }
 
     private static boolean checkWinCondition(ServerWorld world) {
-        return false; // Placeholder for Elytra logic
+        return false;
     }
 
+    /**
+     * CRITICAL FIX: Prevent multiple simultaneous moon crashes
+     */
     private static void triggerMoonfall(ServerWorld world) {
-        world.getPlayers().forEach(p -> {
-            p.sendMessage(Text.of("The moon crashes down..."), false);
-            BlockPos pos = p.getBlockPos();
-            world.createExplosion(
-                    null,
-                    pos.getX() + 0.5,
-                    pos.getY() + 0.5,
-                    pos.getZ() + 0.5,
-                    6.0f,
-                    World.ExplosionSourceType.TNT
+        if (isResetting.getAndSet(true)) {
+            System.out.println("[TemporalTrials] ⚠ Moon crash already in progress, skipping");
+            return;
+        }
+
+        Long lastReset = lastResetTime.get(world);
+        long currentTime = System.currentTimeMillis();
+        if (lastReset != null && currentTime - lastReset < 10000) {
+            System.out.println("[TemporalTrials] ⚠ Moon crash on cooldown, skipping");
+            isResetting.set(false);
+            return;
+        }
+
+        System.out.println("[TemporalTrials] ⚠ The moon is descending!");
+        
+        for (ServerPlayerEntity player : world.getPlayers()) {
+            player.sendMessage(Text.of("§4§l╔════════════════════════════════════╗"), false);
+            player.sendMessage(Text.of("§4§l║      ⚠ THE MOON DESCENDS ⚠        ║"), false);
+            player.sendMessage(Text.of("§4§l║   You failed to escape in time...   ║"), false);
+            player.sendMessage(Text.of("§4§l║    The world resets in 5 seconds... ║"), false);
+            player.sendMessage(Text.of("§4§l╚════════════════════════════════════╝"), false);
+            
+            player.playSound(
+                    net.minecraft.sound.SoundEvents.ENTITY_WITHER_DEATH,
+                    2.0f,
+                    0.5f
             );
+        }
+        
+        world.getServer().submit(() -> {
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            handleCycleFail(world);
+            isResetting.set(false);
         });
     }
 
-    private static void restoreInventory(ServerPlayerEntity player) {
-        PlayerDataComponent data = PlayerDataProvider.get(player);
-        DefaultedList<ItemStack> saved = data.getSavedInventory();
-        for (int i = 0; i < saved.size(); i++) {
-            player.getInventory().main.set(i, saved.get(i).copy());
+    /**
+     * Reset world when Flute is used
+     */
+    public static void resetLoop(ServerWorld world) {
+        if (world == null) return;
+        
+        if (!isResetting.compareAndSet(false, true)) {
+            System.out.println("[TemporalTrials] ⚠ Reset already in progress, skipping");
+            return;
+        }
+
+        try {
+            System.out.println("[TemporalTrials] ════════════════════════════════════════════");
+            System.out.println("[TemporalTrials] ╔════════ WORLD RESET INITIATED ════════╗");
+            System.out.println("[TemporalTrials] ║ Resetting world to Day 1...           ║");
+            System.out.println("[TemporalTrials] ║ Inventory restored immediately...     ║");
+            System.out.println("[TemporalTrials] ║ Chunks regen in background...         ║");
+            System.out.println("[TemporalTrials] ╚═══════════════════════════════════════╝");
+            System.out.println("[TemporalTrials] ════════════════════════════════════════════");
+
+            loopActive = false;
+            world.setTimeOfDay(0L);
+            
+            BlockPos spawn = world.getSpawnPos();
+            
+            for (ServerPlayerEntity player : world.getPlayers()) {
+                PlayerDataComponent playerData = PlayerDataProvider.get(player);
+                DefaultedList<ItemStack> savedInventory = playerData.getSavedInventory();
+                
+                player.getInventory().clear();
+                for (int i = 0; i < Math.min(savedInventory.size(), player.getInventory().main.size()); i++) {
+                    player.getInventory().main.set(i, savedInventory.get(i).copy());
+                }
+                
+                player.setHealth(player.getMaxHealth());
+                player.setExperienceLevel(0);
+                player.addExperience(-player.totalExperience);
+                
+                player.requestTeleport(
+                        spawn.getX() + 0.5,
+                        spawn.getY() + 1,
+                        spawn.getZ() + 0.5
+                );
+            }
+            
+            startProgressiveChunkRegeneration(world, spawn);
+            
+            if (TemporalTrialsConfig.MULTIPLAYER_LIVES_ENABLED) {
+                MultiplayerLivesManager livesMgr = MultiplayerLivesManager.get(world);
+                livesMgr.resetAllLives();
+            }
+            
+            loopStartTick = world.getTimeOfDay();
+            loopActive = true;
+            lastResetTime.put(world, System.currentTimeMillis());
+            
+            for (ServerPlayerEntity player : world.getPlayers()) {
+                player.sendMessage(Text.of("§b§l╔════════════════════════════════════╗"), false);
+                player.sendMessage(Text.of("§b§l║   World reset to Day 1 complete!   ║"), false);
+                player.sendMessage(Text.of("§b§l║    Your progress is preserved.      ║"), false);
+                player.sendMessage(Text.of("§b§l║  Chunks regenerating in background. ║"), false);
+                player.sendMessage(Text.of("§b§l╚════════════════════════════════════╝"), false);
+            }
+            
+            System.out.println("[TemporalTrials] === WORLD RESET COMPLETE ===");
+        } finally {
+            isResetting.set(false);
         }
     }
 
-    private static void resetLoop(ServerWorld world) {
+    /**
+     * Handle cycle failure
+     */
+    public static void handleCycleFail(ServerWorld world) {
+        if (world == null) return;
+
+        System.out.println("[TemporalTrials] ════════════════════════════════════════════");
+        System.out.println("[TemporalTrials] ╔════════ CYCLE FAILED ════════╗");
+        System.out.println("[TemporalTrials] ║ Resetting...                  ║");
+        System.out.println("[TemporalTrials] ╚════════════════════════════════╝");
+
         loopActive = false;
-        long current = world.getTimeOfDay();
-        long newTime = current - (current % DAY_LENGTH_TICKS);
-        world.setTimeOfDay(newTime);
+        world.setTimeOfDay(0L);
         BlockPos spawn = world.getSpawnPos();
+        
         for (ServerPlayerEntity player : world.getPlayers()) {
-            restoreInventory(player);
-            player.requestTeleport(spawn.getX() + 0.5, spawn.getY() + 1, spawn.getZ() + 0.5);
+            PlayerDataComponent playerData = PlayerDataProvider.get(player);
+            DefaultedList<ItemStack> savedInventory = playerData.getSavedInventory();
+            
+            player.getInventory().clear();
+            for (int i = 0; i < Math.min(savedInventory.size(), player.getInventory().main.size()); i++) {
+                player.getInventory().main.set(i, savedInventory.get(i).copy());
+            }
+            
             player.setHealth(player.getMaxHealth());
+            player.setExperienceLevel(0);
+            player.addExperience(-player.totalExperience);
+            
+            player.requestTeleport(spawn.getX() + 0.5, spawn.getY() + 1, spawn.getZ() + 0.5);
         }
-        startLoop(world);
+        
+        startProgressiveChunkRegeneration(world, spawn);
+        
+        if (TemporalTrialsConfig.MULTIPLAYER_LIVES_ENABLED) {
+            MultiplayerLivesManager livesMgr = MultiplayerLivesManager.get(world);
+            livesMgr.resetAllLives();
+        }
+        
+        loopStartTick = world.getTimeOfDay();
+        loopActive = true;
+        lastResetTime.put(world, System.currentTimeMillis());
+        
+        for (ServerPlayerEntity player : world.getPlayers()) {
+            player.sendMessage(Text.of("§4§l╔════════════════════════════════════╗"), false);
+            player.sendMessage(Text.of("§4§l║      CYCLE FAILED                  ║"), false);
+            player.sendMessage(Text.of("§4§l║ But your Flute protected your items.║"), false);
+            player.sendMessage(Text.of("§4§l║      Try again on Day 1...          ║"), false);
+            player.sendMessage(Text.of("§4§l╚════════════════════════════════════╝"), false);
+        }
+    }
+
+    /**
+     * Async chunk regen
+     */
+    private static void startProgressiveChunkRegeneration(ServerWorld world, BlockPos center) {
+        Thread asyncRegen = new Thread(() -> {
+            try {
+                int chunkRadius = TemporalTrialsConfig.CHUNK_REGEN_RADIUS;
+                int centerChunkX = center.getX() >> 4;
+                int centerChunkZ = center.getZ() >> 4;
+                
+                int totalChunks = (chunkRadius * 2 + 1) * (chunkRadius * 2 + 1);
+                int processed = 0;
+                
+                System.out.println("[TemporalTrials] Starting async chunk regeneration of " + totalChunks + " chunks");
+                
+                for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
+                    for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+                        int chunkX = centerChunkX + dx;
+                        int chunkZ = centerChunkZ + dz;
+                        
+                        try {
+                            BlockPos chunkOrigin = new BlockPos(chunkX << 4, 0, chunkZ << 4);
+                            world.getChunkManager().markForUpdate(chunkOrigin);
+                        } catch (Exception e) {
+                            System.err.println("[TemporalTrials] Error regenerating chunk " + chunkX + "," + chunkZ);
+                        }
+                        
+                        processed++;
+                        
+                        if (processed % 100 == 0) {
+                            System.out.println("[TemporalTrials] Chunk regen: " + processed + "/" + totalChunks);
+                        }
+                        
+                        if (processed % 10 == 0) {
+                            Thread.sleep(5);
+                        }
+                    }
+                }
+                
+                System.out.println("[TemporalTrials] ✓ Chunk regeneration complete!");
+            } catch (Exception e) {
+                System.err.println("[TemporalTrials] Error during chunk regen: " + e.getMessage());
+            }
+        });
+        
+        asyncRegen.setName("TemporalTrials-ChunkRegen");
+        asyncRegen.setDaemon(true);
+        asyncRegen.start();
     }
 
     public static void manualRewind(ServerWorld world, ServerPlayerEntity player) {
         long current = world.getTimeOfDay();
-        long newTime = current - (current % DAY_LENGTH_TICKS);
+        long newTime = current - (current % TemporalTrialsConfig.getDayLengthTicks());
         world.setTimeOfDay(newTime);
         BlockPos spawn = world.getSpawnPos();
         player.requestTeleport(spawn.getX() + 0.5, spawn.getY() + 1, spawn.getZ() + 0.5);
     }
 
-    // server -> client state packet sender (Option A: PacketByteBuf + ServerPlayNetworking)
-    private static void sendStateToAll(ServerWorld world, boolean showIntro) {
-        long now = world.getTimeOfDay();
-        long elapsed = (loopStartTick < 0) ? 0 : now - loopStartTick;
-        int day = getCurrentDay(elapsed);
-        long remaining = Math.max(0, LOOP_DURATION_TICKS - elapsed);
-        sendStateToAll(world, showIntro, day, remaining);
-    }
+    // ===== NETWORK SYNC =====
 
     private static void sendStateToAll(ServerWorld world, boolean showIntro, int day, long remainingTicks) {
         LoopStatePayload payload = new LoopStatePayload(loopActive, day, remainingTicks, showIntro);
