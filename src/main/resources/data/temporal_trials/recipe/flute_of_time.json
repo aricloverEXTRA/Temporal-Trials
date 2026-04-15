@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " # ",
+    "BGB",
+    " B "
+  ],
+  "key": {
+    "#": "minecraft:clock",
+    "B": "minecraft:lapis_lazuli",
+    "G": "minecraft:gold_ingot"
+  },
+  "result": {
+    "id": "temporal_trials:flute_of_time",
+    "count": 1
+  }
+}

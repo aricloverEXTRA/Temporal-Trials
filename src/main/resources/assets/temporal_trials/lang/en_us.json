@@ -1,0 +1,12 @@
+{
+  "itemGroup.temporal_trials": "Temporal Trials",
+  "createWorld.customize.dataPackTitle.temporal_trials": "Temporal Trials",
+  "item.temporal_trials.flute_of_time": "Flute of Time",
+  "item.temporal_trials.day_1_disc": "Music Disc – Clock Town (Day 1)",
+  "item.temporal_trials.day_1_disc.desc": "Koji Kondo",
+  "item.temporal_trials.day_2_disc": "Music Disc – Clock Town (Day 2)",
+  "item.temporal_trials.day_2_disc.desc": "Koji Kondo",
+  "item.temporal_trials.day_3_disc": "Music Disc – Clock Town (Day 3)",
+  "item.temporal_trials.day_3_disc.desc": "Koji Kondo",
+  "gamerule.disableEnd": "Disable End Dimension (Temporal Trials)"
+}

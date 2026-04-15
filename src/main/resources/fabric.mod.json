@@ -1,0 +1,43 @@
+{
+	"schemaVersion": 1,
+	"id": "temporal_trials",
+	"version": "${version}",
+	"name": "Temporal Trials",
+	"description": "A mod inspired by Majora's Mask with a time loop mechanic",
+	"authors": [
+		"Aric3435"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "MIT",
+	"icon": "assets/temporal_trials/icon.png",
+	"environment": "*",
+	"entrypoints": {
+	"main": [
+		{
+			"value": "com.aric3435.temporaltrials.TemporalTrialsMod"
+			}
+		],
+	"client": [
+		{
+			"value": "com.aric3435.temporaltrials.client.ClientInit"
+			}
+		],
+		"modmenu": [
+			{
+				"value": "com.aric3435.temporaltrials.client.TemporalTrialsModMenu"
+			}
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.14",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
