@@ -8,7 +8,14 @@ public final class ClientLoopState {
     private static volatile long remainingTicks = 0L;
     private static volatile boolean showIntro = false;
 
+    private static volatile int previousDay = 1;
+
     public static void update(boolean newActive, int newDay, long newRemaining, boolean newShowIntro) {
+        if (newDay != previousDay) {
+            DayTransitionController.showTransition(newDay);
+            previousDay = newDay;
+        }
+
         active = newActive;
         day = newDay;
         remainingTicks = newRemaining;

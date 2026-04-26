@@ -1,6 +1,5 @@
 package com.aric3435.temporaltrials.command;
 
-import com.aric3435.temporaltrials.config.TemporalTrialsConfig;
 import com.aric3435.temporaltrials.player.PlayerDataComponent;
 import com.aric3435.temporaltrials.player.PlayerDataProvider;
 import com.aric3435.temporaltrials.world.LoopManager;
@@ -16,16 +15,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 
 /**
- * Debug command to control Temporal Trials for the current server world.
- * Usage:
- *   /temporaltrials set <true|false>
- *   /temporaltrials toggle
- *   /temporaltrials help
- *
- * Lives subcommands (only if TemporalTrialsConfig.MULTIPLAYER_LIVES_ENABLED):
- *   /temporaltrials lives add <player> <amount>
- *   /temporaltrials lives set <player> <amount>
- *   /temporaltrials lives all <amount>
+ * Debug command to control Temporal Trials and manage lives.
  */
 public final class TemporalTrialsCommand {
     private TemporalTrialsCommand() {}
@@ -55,105 +45,98 @@ public final class TemporalTrialsCommand {
                         src.sendFeedback(() -> Text.literal("Temporal Trials toggled to: " + newVal), true);
                         return 1;
                     })
-                )
-                .then(CommandManager.literal("help")
+                );
+
+            // lives commands (ops only)
+            var livesNode = CommandManager.literal("lives").requires(src -> src.hasPermissionLevel(2));
+
+            // add
+            livesNode = livesNode.then(CommandManager.literal("add")
+                .then(CommandManager.argument("player", StringArgumentType.word())
+                    .then(CommandManager.argument("amount", IntegerArgumentType.integer(1, 999))
+                        .executes(ctx -> {
+                            String playerName = StringArgumentType.getString(ctx, "player");
+                            int amount = IntegerArgumentType.getInteger(ctx, "amount");
+                            ServerCommandSource src = ctx.getSource();
+                            MinecraftServer server = src.getServer();
+
+                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
+                            if (player == null) {
+                                src.sendFeedback(() -> Text.literal("§cCould not find player: " + playerName), false);
+                                return 0;
+                            }
+
+                            PlayerDataComponent pData = PlayerDataProvider.get(player);
+                            int newLives = pData.getRemainingLives() + amount;
+                            pData.setRemainingLives(newLives);
+
+                            src.sendFeedback(() -> Text.literal("§aAdded " + amount + " lives to " + playerName + " (" + newLives + " total)"), true);
+                            player.sendMessage(Text.literal("§eYou received " + amount + " extra lives (now " + newLives + ")!"), false);
+                            return 1;
+                        }))));
+            // set
+            livesNode = livesNode.then(CommandManager.literal("set")
+                .then(CommandManager.argument("player", StringArgumentType.word())
+                    .then(CommandManager.argument("amount", IntegerArgumentType.integer(0, 999))
+                        .executes(ctx -> {
+                            String playerName = StringArgumentType.getString(ctx, "player");
+                            int amount = IntegerArgumentType.getInteger(ctx, "amount");
+                            ServerCommandSource src = ctx.getSource();
+                            MinecraftServer server = src.getServer();
+
+                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
+                            if (player == null) {
+                                src.sendFeedback(() -> Text.literal("§cCould not find player: " + playerName), false);
+                                return 0;
+                            }
+
+                            PlayerDataComponent pData = PlayerDataProvider.get(player);
+                            pData.setRemainingLives(amount);
+
+                            src.sendFeedback(() -> Text.literal("§aSet lives for " + playerName + " to " + amount + "."), true);
+                            player.sendMessage(Text.literal("§eYour Temporal Trials lives have been set to: " + amount), false);
+                            return 1;
+                        }))));
+
+            // all
+            livesNode = livesNode.then(CommandManager.literal("all")
+                .then(CommandManager.argument("amount", IntegerArgumentType.integer(0, 999))
                     .executes(ctx -> {
+                        int amount = IntegerArgumentType.getInteger(ctx, "amount");
                         ServerCommandSource src = ctx.getSource();
                         MinecraftServer server = src.getServer();
-                        src.sendFeedback(() -> Text.literal(TemporalTrialsConfig.getHelpMessage(server)), false);
+
+                        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+                            PlayerDataComponent pData = PlayerDataProvider.get(player);
+                            pData.setRemainingLives(amount);
+                            player.sendMessage(Text.literal("§eYour Temporal Trials lives have been set to: " + amount), false);
+                        }
+                        src.sendFeedback(() -> Text.literal("§aSet all players' lives to " + amount), true);
                         return 1;
-                    })
-                );
+                    })));
 
-            // Register lives command only if the feature is enabled in config
-            if (TemporalTrialsConfig.MULTIPLAYER_LIVES_ENABLED) {
-                var livesNode = CommandManager.literal("lives")
-                        .requires(src -> src.hasPermissionLevel(2)); // ops only
+            // view: /temporaltrials lives view <player>
+            livesNode = livesNode.then(CommandManager.literal("view")
+                .then(CommandManager.argument("player", StringArgumentType.word())
+                    .executes(ctx -> {
+                        String playerName = StringArgumentType.getString(ctx, "player");
+                        ServerCommandSource src = ctx.getSource();
+                        MinecraftServer server = src.getServer();
 
-                // /temporaltrials lives add <player> <amount>
-                livesNode = livesNode.then(CommandManager.literal("add")
-                        .then(CommandManager.argument("player", StringArgumentType.word())
-                                .then(CommandManager.argument("amount", IntegerArgumentType.integer(1, 999))
-                                        .executes(ctx -> {
-                                            String playerName = StringArgumentType.getString(ctx, "player");
-                                            int amount = IntegerArgumentType.getInteger(ctx, "amount");
-                                            ServerCommandSource src = ctx.getSource();
-                                            MinecraftServer server = src.getServer();
+                        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
+                        if (player == null) {
+                            src.sendFeedback(() -> Text.literal("§cCould not find player: " + playerName), false);
+                            return 0;
+                        }
 
-                                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
-                                            if (player == null) {
-                                                src.sendFeedback(() -> Text.literal("§cCould not find player: " + playerName), false);
-                                                return 0;
-                                            }
+                        PlayerDataComponent pData = PlayerDataProvider.get(player);
+                        int lives = pData.getRemainingLives();
 
-                                            PlayerDataComponent pData = PlayerDataProvider.get(player);
-                                            int newLives = pData.getRemainingLives() + amount;
-                                            pData.setRemainingLives(newLives);
+                        src.sendFeedback(() -> Text.literal("§a" + playerName + " has " + lives + " Temporal Trials lives."), false);
+                        return 1;
+                    })));
 
-                                            src.sendFeedback(() -> Text.literal(
-                                                    "§aAdded " + amount + " lives to " + playerName + " (" + newLives + " total)"), true);
-                                            player.sendMessage(Text.literal(
-                                                    "§eYou received " + amount + " extra lives (now " + newLives + ")!"), false);
-                                            return 1;
-                                        })
-                                )
-                        )
-                );
-
-                // /temporaltrials lives set <player> <amount>
-                livesNode = livesNode.then(CommandManager.literal("set")
-                        .then(CommandManager.argument("player", StringArgumentType.word())
-                                .then(CommandManager.argument("amount", IntegerArgumentType.integer(0, 999))
-                                        .executes(ctx -> {
-                                            String playerName = StringArgumentType.getString(ctx, "player");
-                                            int amount = IntegerArgumentType.getInteger(ctx, "amount");
-                                            ServerCommandSource src = ctx.getSource();
-                                            MinecraftServer server = src.getServer();
-
-                                            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerName);
-                                            if (player == null) {
-                                                src.sendFeedback(() -> Text.literal("§cCould not find player: " + playerName), false);
-                                                return 0;
-                                            }
-
-                                            PlayerDataComponent pData = PlayerDataProvider.get(player);
-                                            pData.setRemainingLives(amount);
-
-                                            src.sendFeedback(() -> Text.literal(
-                                                    "§aSet lives for " + playerName + " to " + amount + "."), true);
-                                            player.sendMessage(Text.literal(
-                                                    "§eYour Temporal Trials lives have been set to: " + amount), false);
-                                            return 1;
-                                        })
-                                )
-                        )
-                );
-
-                // /temporaltrials lives all <amount>
-                livesNode = livesNode.then(CommandManager.literal("all")
-                        .then(CommandManager.argument("amount", IntegerArgumentType.integer(0, 999))
-                                .executes(ctx -> {
-                                    int amount = IntegerArgumentType.getInteger(ctx, "amount");
-                                    ServerCommandSource src = ctx.getSource();
-                                    MinecraftServer server = src.getServer();
-
-                                    for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                                        PlayerDataComponent pData = PlayerDataProvider.get(player);
-                                        pData.setRemainingLives(amount);
-                                        player.sendMessage(Text.literal(
-                                                "§eYour Temporal Trials lives have been set to: " + amount), false);
-                                    }
-                                    src.sendFeedback(() -> Text.literal(
-                                            "§aSet all players' lives to " + amount), true);
-                                    return 1;
-                                })
-                        )
-                );
-
-                root = root.then(livesNode);
-            }
-
-            dispatcher.register(root);
+            dispatcher.register(root.then(livesNode));
         });
     }
 }

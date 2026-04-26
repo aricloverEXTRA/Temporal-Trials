@@ -20,7 +20,6 @@ public final class ClientInit implements ClientModInitializer {
 
         TemporalTrialsClientConfig.loadConfig();
 
-        // register typed payload receiver
         ClientPlayNetworking.registerGlobalReceiver(LoopStatePayload.ID, (payload, context) -> {
             context.client().execute(() -> {
                 ClientLoopState.update(payload.isActive(), payload.getDay(), payload.getRemainingTicks(), payload.shouldShowIntro());
@@ -28,10 +27,11 @@ public final class ClientInit implements ClientModInitializer {
             });
         });
 
-        // register controllers and HUDs
+        // Register client controllers
         ClientMusicController.register();
         MoonFallController.register();
         ClockHudRenderer.register();
+        DayTransitionController.register();
 
         System.out.println("[TemporalTrials] ✓ Client initialized successfully");
     }
