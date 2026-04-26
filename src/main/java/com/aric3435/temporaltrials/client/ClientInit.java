@@ -6,11 +6,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.Environment;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.client.MinecraftClient;
 
-/**
- * ClientInit: registers client receiver and initializes client-only features.
- */
 @Environment(EnvType.CLIENT)
 public final class ClientInit implements ClientModInitializer {
     private static boolean initialized = false;
@@ -22,27 +18,20 @@ public final class ClientInit implements ClientModInitializer {
 
         System.out.println("[TemporalTrials] Client initializing...");
 
-        // Load client config
         TemporalTrialsClientConfig.loadConfig();
-        System.out.println("[TemporalTrials] ✓ Client config loaded");
 
-        // Register typed play-payload receiver (LoopStatePayload.ID)
+        // register typed payload receiver
         ClientPlayNetworking.registerGlobalReceiver(LoopStatePayload.ID, (payload, context) -> {
-            // Execute on client thread
-            MinecraftClient client = MinecraftClient.getInstance();
-            client.execute(() -> {
-                ClientLoopState.update(
-                    payload.isActive(),
-                    payload.getDay(),
-                    payload.getRemainingTicks(),
-                    payload.shouldShowIntro()
-                );
+            context.client().execute(() -> {
+                ClientLoopState.update(payload.isActive(), payload.getDay(), payload.getRemainingTicks(), payload.shouldShowIntro());
+                MoonFallController.onPayload(payload.shouldShowIntro(), payload.getDay(), payload.getRemainingTicks());
             });
         });
 
-        // Optional client systems (no-op stubs or real logic)
-        MusicController.register();
-        MoonHudRenderer.register();
+        // register controllers and HUDs
+        ClientMusicController.register();
+        MoonFallController.register();
+        ClockHudRenderer.register();
 
         System.out.println("[TemporalTrials] ✓ Client initialized successfully");
     }
