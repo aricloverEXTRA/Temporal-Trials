@@ -2,60 +2,59 @@ package com.aric3435.temporaltrials.player;
 
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.minecraft.server.network.ServerPlayerEntity;
-import java.util.WeakHashMap;
+
+import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * PlayerDataProvider: Manages persistent player data across world resets.
- * 
- * Uses WeakHashMap so data is automatically cleaned up when player disconnects.
- * 
- * The saved inventory persists across resets:
- * - Easy/Normal: Acts as safety net (you get it back if you die)
- * - Hard Mode: Acts as progression tracker (dying loses it, Flute saves it)
+ * PlayerDataProvider: Manages persistent player data for Temporal Trials.
+ * Stores saved inventory and per-player lives for the current cycle.
  */
 public class PlayerDataProvider {
-
-    // Persistent storage using WeakHashMap
-    // This survives world resets because the player entity persists
-    private static final Map<ServerPlayerEntity, PlayerDataComponent> PLAYER_DATA = new WeakHashMap<>();
+    // Holds all player data keyed by UUID to avoid issues with entity identity (disconnection, death)
+    private static final Map<UUID, PlayerDataComponent> PLAYER_DATA = new HashMap<>();
 
     /**
-     * Get or create player data component
+     * Get or create player data for a ServerPlayerEntity.
      */
     public static PlayerDataComponent get(ServerPlayerEntity player) {
-        return PLAYER_DATA.computeIfAbsent(player, p -> {
-            System.out.println("[TemporalTrials] Created new player data for " + p.getName().getString());
+        return PLAYER_DATA.computeIfAbsent(player.getUuid(), uuid -> {
+            System.out.println("[TemporalTrials] Created new player data for " + player.getName().getString());
             return new PlayerDataComponent();
         });
     }
 
     /**
-     * Register player event handlers
+     * Set remaining lives for a player.
+     */
+    public static void setRemainingLives(ServerPlayerEntity player, int lives) {
+        get(player).setRemainingLives(lives);
+    }
+
+    /**
+     * Get remaining lives for a player.
+     */
+    public static int getRemainingLives(ServerPlayerEntity player) {
+        return get(player).getRemainingLives();
+    }
+
+    /**
+     * Register player event handlers for cleanup.
      */
     public static void register() {
-        // When player respawns (dies and respawns)
-        ServerPlayerEvents.COPY_FROM.register((oldPlayer, newPlayer, alive) -> {
-            PlayerDataComponent oldData = PLAYER_DATA.get(oldPlayer);
-            
-            if (oldData != null && alive) {
-                // Player respawned - copy their old data to new player entity
-                PlayerDataComponent newData = new PlayerDataComponent();
-                newData.saveInventory(oldData.getSavedInventory());
-                PLAYER_DATA.put(newPlayer, newData);
-                
-                System.out.println("[TemporalTrials] Copied player data on respawn for " + newPlayer.getName().getString());
-            } else {
-                // Player died - don't carry over data (handled by death logic elsewhere)
-                System.out.println("[TemporalTrials] Player " + newPlayer.getName().getString() + " respawned without data copy");
-            }
-        });
-
-        // Clean up old player data when they leave
+        // When the player leaves, clean up.
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
-            PLAYER_DATA.remove(oldPlayer);
+            PLAYER_DATA.remove(oldPlayer.getUuid());
         });
+        // (Optional): clear on player disconnect if needed – not strictly required due to short-lived nature.
+        System.out.println("[TemporalTrials] PlayerDataProvider: Registered for cleanup.");
+    }
 
-        System.out.println("[TemporalTrials] PlayerDataProvider registered");
+    /**
+     * For testing/admin: clear all data.
+     */
+    public static void clearAll() {
+        PLAYER_DATA.clear();
     }
 }
